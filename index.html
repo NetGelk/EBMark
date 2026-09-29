@@ -174,6 +174,14 @@ letter-spacing: .12em; text-transform: uppercase; cursor: pointer;
 .mm-significant .mm-item  { color: #d9a060; background: #1a1200; border-color: var(--amber); }
 .mm-other .mm-title { color: var(--muted); }
 .mm-other .mm-item  { color: #8ab0a0; background: var(--surface); border-color: var(--dim); }
+#match-rec { display: none; padding: 14px; margin: 16px 0 12px; background: var(--surface); border: 1px solid var(--border); }
+#match-rec .mm-title { color: var(--teal-hi); margin-bottom: 10px; }
+.rec-heading { font-size: 10px; color: var(--muted); letter-spacing: .12em; text-transform: uppercase; margin: 12px 0 4px; }
+.rec-heading:first-of-type { margin-top: 0; }
+.rec-text { font-size: 13px; line-height: 1.6; color: var(--text); }
+.rec-list { font-size: 13px; line-height: 1.6; color: var(--text); padding-left: 18px; }
+.rec-seek { margin-top: 14px; padding: 10px 12px; font-size: 12px; color: #d9a060; background: #1a1200; border: 1px solid var(--amber); }
+#match-missing { display: none; font-size: 11px; color: #7a8a80; line-height: 1.6; }
 
 /* breakdown */
 #breakdown-btn {
@@ -363,6 +371,8 @@ font-size: 12px; margin-top: 12px; display: none;
           </div>
           <div id="match-summary"></div>
           <div id="match-mismatches"></div>
+          <div id="match-rec"></div>
+          <div id="match-missing"></div>
         </div>
       </div>
     </div>
@@ -664,6 +674,20 @@ function splitList(v) {
   return v.split(',').map(s => s.trim()).filter(Boolean);
 }
 
+// "eGFR: 38, HbA1c: 7.4" -> { eGFR: 38, HbA1c: 7.4 }; values stay text when not numeric.
+function parseLabs(v) {
+  const labs = {};
+  v.split(',').forEach(part => {
+    const i = part.indexOf(':');
+    if (i < 0) { if (part.trim()) labs[part.trim()] = null; return; }
+    const key = part.slice(0, i).trim();
+    const val = part.slice(i + 1).trim();
+    if (!key) return;
+    labs[key] = val !== '' && !isNaN(Number(val)) ? Number(val) : val;
+  });
+  return labs;
+}
+
 function getPatient() {
   const age = document.getElementById('p-age').value.trim();
   return {
@@ -671,7 +695,7 @@ function getPatient() {
     sex:           document.getElementById('p-sex').value || null,
     diagnoses:     splitList(document.getElementById('p-diagnoses').value),
     medications:   splitList(document.getElementById('p-medications').value),
-    lab_values:    document.getElementById('p-labs').value.trim(),
+    labs:          parseLabs(document.getElementById('p-labs').value),
     comorbidities: splitList(document.getElementById('p-comorbidities').value),
   };
 }
@@ -697,7 +721,7 @@ async function runPatientMatch() {
   if (!lastPaper) { showMatchError('Run an appraisal first.'); return; }
   const patient = getPatient();
   const hasInput = patient.age !== null || patient.sex || patient.diagnoses.length ||
-    patient.medications.length || patient.lab_values || patient.comorbidities.length;
+    patient.medications.length || Object.keys(patient.labs).length || patient.comorbidities.length;
   if (!hasInput) { showMatchError('Enter at least one patient detail.'); return; }
 
   hide('match-error'); hide('match-result');
@@ -707,14 +731,11 @@ async function runPatientMatch() {
 
   try {
     text('match-loading', 'Extracting study population (1/2)…');
-    const extracted = await postJSON('/api/extract-population', {
-      paper: lastPaper,
-      paperText: paperText(lastPaper)
-    });
-    const population = extracted.population ?? extracted;
+    const { title, abstract, doi, journal, year } = lastPaper;
+    const population = await postJSON('/api/extract-population', { title, abstract, doi, journal, year });
 
     text('match-loading', 'Matching your patient (2/2)…');
-    const match = await postJSON('/api/match-patient', { patient, population });
+    const match = await postJSON('/api/match-patient', { patient, population, paper: lastPaper });
     renderMatch(match);
   } catch (err) {
     showMatchError('Error: ' + err.message);
@@ -778,7 +799,71 @@ function renderMatch(r) {
       renderMismatchGroup(mm, title, 'mm-other', r[k]);
     });
 
+  renderRecommendation(r.patient_specific_recommendation);
+
+  const missing = Array.isArray(r.missing_patient_data) ? r.missing_patient_data.filter(Boolean) : [];
+  if (missing.length) {
+    text('match-missing', 'Results may improve with: ' + missing.map(mismatchText).join(', '));
+    block('match-missing');
+  } else {
+    hide('match-missing');
+  }
+
   block('match-result');
+}
+
+function renderRecommendation(rec) {
+  const box = document.getElementById('match-rec');
+  box.textContent = '';
+  if (!rec || typeof rec !== 'object') { hide('match-rec'); return; }
+
+  const addHeading = t => {
+    const h = document.createElement('div');
+    h.className = 'rec-heading';
+    h.textContent = t;
+    box.appendChild(h);
+  };
+  const addText = t => {
+    const d = document.createElement('div');
+    d.className = 'rec-text';
+    d.textContent = t;
+    box.appendChild(d);
+  };
+
+  const title = document.createElement('div');
+  title.className = 'mm-title';
+  title.textContent = 'Patient-specific recommendation';
+  box.appendChild(title);
+
+  if (rec.what_evidence_supports) {
+    addHeading('What the evidence supports for this patient');
+    addText(rec.what_evidence_supports);
+  }
+  const caveats = Array.isArray(rec.caveats) ? rec.caveats.filter(Boolean) : [];
+  if (caveats.length) {
+    addHeading('Caveats');
+    const ul = document.createElement('ul');
+    ul.className = 'rec-list';
+    caveats.forEach(c => {
+      const li = document.createElement('li');
+      li.textContent = mismatchText(c);
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
+  }
+  if (rec.evidence_gaps_for_this_patient) {
+    addHeading('Evidence gaps for this patient');
+    addText(Array.isArray(rec.evidence_gaps_for_this_patient)
+      ? rec.evidence_gaps_for_this_patient.join('; ')
+      : rec.evidence_gaps_for_this_patient);
+  }
+  if (rec.seek_additional_evidence === true) {
+    const note = document.createElement('div');
+    note.className = 'rec-seek';
+    note.textContent = 'Additional evidence recommended for this patient population';
+    box.appendChild(note);
+  }
+  block('match-rec');
 }
 
 function resetRelevance() {
