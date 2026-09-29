@@ -134,6 +134,47 @@ border: 1px solid #3a2a00; margin-bottom: 14px; display: none;
 .flags-wrap  { display: flex; flex-wrap: wrap; gap: 6px; }
 .flag-tag    { font-size: 11px; color: #a07030; background: #1a1200; border: 1px solid #3a2a00; padding: 3px 8px; }
 
+/* patient relevance */
+#relevance { border: 1px solid var(--border); margin-bottom: 14px; }
+#relevance-toggle {
+width: 100%; padding: 12px 14px;
+background: var(--surface); border: none;
+color: #2a8a6a; font-size: 11px; cursor: pointer; text-align: left;
+font-family: var(--font); letter-spacing: .12em; text-transform: uppercase;
+}
+#relevance-toggle:hover { color: var(--teal-hi); }
+#relevance-body { display: none; padding: 16px 14px 14px; border-top: 1px solid var(--border); }
+.rel-heading { font-size: 10px; color: var(--muted); letter-spacing: .15em; text-transform: uppercase; margin-bottom: 14px; }
+select {
+width: 100%; padding: 10px 14px; margin-bottom: 14px;
+background: var(--surface); border: 1px solid var(--border);
+color: var(--text); font-size: 13px; font-family: var(--font); outline: none;
+}
+select:focus { border-color: var(--teal); }
+#match-btn {
+width: 100%; padding: 12px;
+background: var(--teal); border: none;
+color: var(--text); font-size: 12px; font-family: var(--font);
+letter-spacing: .12em; text-transform: uppercase; cursor: pointer;
+}
+#match-btn:hover { background: var(--teal-hi); }
+#match-btn:disabled { opacity: .4; cursor: not-allowed; }
+#match-loading { display: none; font-size: 11px; color: var(--teal); letter-spacing: .15em; text-transform: uppercase; text-align: center; padding: 16px 0 4px; }
+#match-error { display: none; padding: 12px 14px; background: #200a0a; border: 1px solid #5a1a1a; color: #c07070; font-size: 12px; margin-top: 12px; }
+#match-result { display: none; margin-top: 16px; }
+#match-badge { padding: 18px 20px; margin-bottom: 12px; border: 2px solid; }
+.match-badge-label { font-family: var(--serif); font-size: 24px; font-weight: 900; line-height: 1.1; word-break: break-word; }
+#match-summary { font-size: 13px; line-height: 1.6; margin-bottom: 14px; }
+.mm-group { margin-bottom: 12px; }
+.mm-title { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 6px; }
+.mm-item { font-size: 12px; line-height: 1.6; padding: 8px 12px; margin-bottom: 4px; border-left: 3px solid; }
+.mm-critical .mm-title { color: var(--red); }
+.mm-critical .mm-item  { color: #e08a80; background: #200a0a; border-color: var(--red); }
+.mm-significant .mm-title { color: var(--amber); }
+.mm-significant .mm-item  { color: #d9a060; background: #1a1200; border-color: var(--amber); }
+.mm-other .mm-title { color: var(--muted); }
+.mm-other .mm-item  { color: #8ab0a0; background: var(--surface); border-color: var(--dim); }
+
 /* breakdown */
 #breakdown-btn {
 width: 100%; padding: 10px; margin-bottom: 12px;
@@ -283,6 +324,48 @@ font-size: 12px; margin-top: 12px; display: none;
       <div class="flags-label">Appraisal Flags</div>
       <div class="flags-wrap" id="flags-wrap"></div>
     </div>
+
+    <!-- PATIENT RELEVANCE -->
+    <div id="relevance">
+      <button id="relevance-toggle" onclick="toggleRelevance()">▼ Check relevance for your patient</button>
+      <div id="relevance-body">
+        <div class="rel-heading">Patient Relevance</div>
+        <div class="grid2">
+          <div>
+            <label>Age</label>
+            <input id="p-age" type="number" min="0" max="120" placeholder="e.g. 67">
+          </div>
+          <div>
+            <label>Sex</label>
+            <select id="p-sex">
+              <option value="">Select</option>
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+        </div>
+        <label>Diagnoses (comma separated)</label>
+        <input id="p-diagnoses" type="text" placeholder="e.g. type 2 diabetes, heart failure">
+        <label>Current medications (comma separated)</label>
+        <input id="p-medications" type="text" placeholder="e.g. metformin, bisoprolol">
+        <label>Key lab values</label>
+        <input id="p-labs" type="text" placeholder="e.g. eGFR: 38, HbA1c: 7.4">
+        <label>Comorbidities (comma separated)</label>
+        <input id="p-comorbidities" type="text" placeholder="e.g. CKD stage 3b, COPD">
+        <button id="match-btn" onclick="runPatientMatch()">Check Patient Match →</button>
+        <div id="match-loading"></div>
+        <div id="match-error"></div>
+        <div id="match-result">
+          <div id="match-badge" class="badge-pop">
+            <div class="badge-label-small">Patient Relevance</div>
+            <div class="match-badge-label" id="match-badge-label"></div>
+          </div>
+          <div id="match-summary"></div>
+          <div id="match-mismatches"></div>
+        </div>
+      </div>
+    </div>
     <button id="breakdown-btn" onclick="toggleBreakdown()">▼ Show Full 8-Dimension Breakdown</button>
     <div id="breakdown"></div>
     <button id="reset-btn" onclick="resetApp()">← Appraise Another Paper</button>
@@ -341,6 +424,7 @@ const SAMPLES = [
 // ── STATE ──────────────────────────────────────────────────────────────────
 let currentMode = 'manual';
 let breakdownVisible = false;
+let lastPaper = null; // paper from the latest Layer 1 appraisal, reused for patient matching
 
 // ── HELPERS ────────────────────────────────────────────────────────────────
 function show(id)    { document.getElementById(id).style.display = ''; }
@@ -458,6 +542,8 @@ async function runAppraisal() {
     )];
 
     hide('loading');
+    lastPaper = paper;
+    resetRelevance();
     renderResult(final, dims, allFlags, paper);
 
   } catch(err) {
@@ -545,6 +631,164 @@ function renderResult(final, dims, flags, paper) {
   hide('breakdown');
 
   block('result');
+}
+
+// ── PATIENT RELEVANCE ──────────────────────────────────────────────────────
+const MATCH_VERDICTS = {
+  DIRECTLY_APPLICABLE:     { label:'Directly Applicable',     color:'#1a9d8a', bg:'#0d2e28', border:'#1a6b5e' },
+  APPLICABLE_WITH_CAVEATS: { label:'Applicable with Caveats', color:'#d9a441', bg:'#2a220a', border:'#8a6a0a' },
+  LIMITED_APPLICABILITY:   { label:'Limited Applicability',   color:'#e0762a', bg:'#2a1500', border:'#a0500a' },
+  NOT_APPLICABLE:          { label:'Not Applicable',          color:'#c0392b', bg:'#2a0e0a', border:'#7a1f18' },
+};
+
+// Mismatch lists we know how to style; any other *_mismatches array the API adds is shown neutrally.
+const MISMATCH_GROUPS = [
+  { key:'critical_mismatches',    title:'Critical mismatches',    cls:'mm-critical' },
+  { key:'significant_mismatches', title:'Significant mismatches', cls:'mm-significant' },
+];
+
+let relevanceOpen = false;
+
+function toggleRelevance() {
+  relevanceOpen = !relevanceOpen;
+  if (relevanceOpen) {
+    block('relevance-body');
+    text('relevance-toggle', '▲ Check relevance for your patient');
+  } else {
+    hide('relevance-body');
+    text('relevance-toggle', '▼ Check relevance for your patient');
+  }
+}
+
+function splitList(v) {
+  return v.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function getPatient() {
+  const age = document.getElementById('p-age').value.trim();
+  return {
+    age:           age === '' ? null : Number(age),
+    sex:           document.getElementById('p-sex').value || null,
+    diagnoses:     splitList(document.getElementById('p-diagnoses').value),
+    medications:   splitList(document.getElementById('p-medications').value),
+    lab_values:    document.getElementById('p-labs').value.trim(),
+    comorbidities: splitList(document.getElementById('p-comorbidities').value),
+  };
+}
+
+async function postJSON(url, body) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  let data;
+  try { data = await res.json(); } catch { throw new Error(`${url} returned ${res.status}`); }
+  if (!res.ok || data.error) throw new Error(data.error || `${url} returned ${res.status}`);
+  return data;
+}
+
+function showMatchError(msg) {
+  text('match-error', msg);
+  block('match-error');
+}
+
+async function runPatientMatch() {
+  if (!lastPaper) { showMatchError('Run an appraisal first.'); return; }
+  const patient = getPatient();
+  const hasInput = patient.age !== null || patient.sex || patient.diagnoses.length ||
+    patient.medications.length || patient.lab_values || patient.comorbidities.length;
+  if (!hasInput) { showMatchError('Enter at least one patient detail.'); return; }
+
+  hide('match-error'); hide('match-result');
+  const btn = document.getElementById('match-btn');
+  btn.disabled = true;
+  block('match-loading');
+
+  try {
+    text('match-loading', 'Extracting study population (1/2)…');
+    const extracted = await postJSON('/api/extract-population', {
+      paper: lastPaper,
+      paperText: paperText(lastPaper)
+    });
+    const population = extracted.population ?? extracted;
+
+    text('match-loading', 'Matching your patient (2/2)…');
+    const match = await postJSON('/api/match-patient', { patient, population });
+    renderMatch(match);
+  } catch (err) {
+    showMatchError('Error: ' + err.message);
+  } finally {
+    hide('match-loading');
+    btn.disabled = false;
+  }
+}
+
+// A mismatch may be a plain string or an object such as
+// { factor, patient_value, study_value, explanation }; render either as text.
+function mismatchText(m) {
+  if (m === null || m === undefined) return '';
+  if (typeof m !== 'object') return String(m);
+  const nameKey = ['factor','dimension','criterion','category','field','name'].find(k => m[k]);
+  const rest = Object.entries(m)
+    .filter(([k, v]) => k !== nameKey && v !== null && v !== '' && typeof v !== 'object')
+    .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`);
+  return (nameKey ? String(m[nameKey]) + (rest.length ? ' — ' : '') : '') + rest.join(' · ');
+}
+
+function renderMismatchGroup(container, title, cls, items) {
+  if (!Array.isArray(items) || items.length === 0) return;
+  const group = document.createElement('div');
+  group.className = 'mm-group ' + cls;
+  const h = document.createElement('div');
+  h.className = 'mm-title';
+  h.textContent = `${title} (${items.length})`;
+  group.appendChild(h);
+  items.forEach(m => {
+    const row = document.createElement('div');
+    row.className = 'mm-item';
+    row.textContent = mismatchText(m);
+    group.appendChild(row);
+  });
+  container.appendChild(group);
+}
+
+function renderMatch(r) {
+  const v = MATCH_VERDICTS[r.verdict] ||
+    { label: String(r.verdict || 'Unknown'), color:'#8a8a9a', bg:'#1a1a22', border:'#5a5a6a' };
+
+  const badge = document.getElementById('match-badge');
+  badge.style.background  = v.bg;
+  badge.style.borderColor = v.border;
+  badge.style.color       = v.color;
+  badge.className = '';
+  void badge.offsetWidth; // restart animation
+  badge.className = 'badge-pop';
+  text('match-badge-label', v.label);
+
+  text('match-summary', r.verdict_summary || '');
+
+  const mm = document.getElementById('match-mismatches');
+  mm.textContent = '';
+  MISMATCH_GROUPS.forEach(g => renderMismatchGroup(mm, g.title, g.cls, r[g.key]));
+  Object.keys(r)
+    .filter(k => /_mismatches$/.test(k) && !MISMATCH_GROUPS.some(g => g.key === k))
+    .forEach(k => {
+      const title = k.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+      renderMismatchGroup(mm, title, 'mm-other', r[k]);
+    });
+
+  block('match-result');
+}
+
+function resetRelevance() {
+  relevanceOpen = false;
+  hide('relevance-body');
+  text('relevance-toggle', '▼ Check relevance for your patient');
+  hide('match-result'); hide('match-error'); hide('match-loading');
+  ['p-age','p-diagnoses','p-medications','p-labs','p-comorbidities']
+    .forEach(id => document.getElementById(id).value = '');
+  document.getElementById('p-sex').value = '';
 }
 
 function toggleBreakdown() {
